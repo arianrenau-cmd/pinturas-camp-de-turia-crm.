@@ -48,7 +48,7 @@
     <form id="login-form"><label for="email">Correo electrónico</label><input id="email" type="email" autocomplete="username" required>
     <label for="password">Contraseña</label><input id="password" type="password" autocomplete="current-password" required>
     <div class="actions"><button class="wide" type="submit">Entrar</button></div></form>
-    <p class="tiny muted">El administrador gestiona las cuentas desde Supabase. No hay registro público.</p>
+    <p class="tiny muted">El administrador gestiona las cuentas desde Supabase. No hay registro público.</p><div class="actions"><button type="button" class="secondary wide" id="change-key">Corregir conexión con Supabase</button></div>
   </section>
   <section id="app" class="hidden">
     <div class="flex between" style="margin-bottom:14px"><div><strong id="who"></strong><div class="muted tiny" id="role"></div></div><button id="logout" class="secondary">Cerrar sesión</button></div>
@@ -89,10 +89,11 @@ function roleAdmin(){return profile?.rol==='administrador';}
 function getKey(){return SUPABASE_PUBLISHABLE_KEY || localStorage.getItem(PUBLIC_KEY_STORAGE) || '';}
 async function boot(){
   const key=getKey();if(!key){show('setup');return;}
+  if(!key.startsWith('sb_publishable_')){show('setup');message('La clave pública guardada no tiene el formato correcto. Sustitúyela por la Publishable key de Supabase.',true);return;}
   if(!window.supabase?.createClient){show('setup');message('No se ha cargado la biblioteca de Supabase. Comprueba la conexión a internet.',true);return;}
   db=window.supabase.createClient(SUPABASE_URL,key,{auth:{autoRefreshToken:true,persistSession:true,detectSessionInUrl:false}});
   db.auth.onAuthStateChange((_ev,session)=>{ if(!session&&currentUser){currentUser=null;profile=null;show('signin');$('top-user').textContent='';} });
-  const {data,error}=await db.auth.getUser();if(error||!data?.user){show('signin');return;}await enter(data.user);
+  const {data,error}=await db.auth.getUser();if(error||!data?.user){show('signin');if(error&&/invalid api key|invalid.*key/i.test(error.message||'')) message('La clave pública de Supabase no es válida. Pulsa Corregir conexión con Supabase para reemplazarla.',true);return;}await enter(data.user);
 }
 async function enter(u){
   currentUser=u;
@@ -127,8 +128,9 @@ function mailSummary(v,c){const subject=`Visita comercial: ${c?.nombre||'Empresa
 function renderVisits(){ $('visits').innerHTML=visits.length?visits.map(v=>{let c=companies.find(c=>c.id===v.empresa_id);return `<article class="item"><div class="flex between"><strong>${safe(companyName(v.empresa_id))}</strong><span class="tag">${safe(v.valoracion||'pendiente')}</span></div><p class="tiny muted">${safe(dateFmt(v.fecha))}${roleAdmin()?' · '+safe(ownerName(v.comercial_id)):''}</p><p>${safe(v.comentario||'Sin comentario')}</p>${v.proxima_visita?`<p class="tiny">Próxima visita: ${safe(v.proxima_visita)}</p>`:''}<a class="btn secondary" href="${mailSummary(v,c)}">Preparar email a Álvaro</a></article>`;}).join(''):'<div class="empty">Todavía no hay visitas registradas.</div>'; }
 function tab(name){['empresas','visitas','nueva'].forEach(x=>$('tab-'+x).classList.toggle('hidden',x!==name));document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));$('visit-form-panel').classList.add('hidden');}
 function openVisit(id){const c=companies.find(x=>x.id===id);if(!c)return;currentCompany=c;$('selected-name').textContent=c.nombre;$('visit-form-panel').classList.remove('hidden');$('visit-form-panel').scrollIntoView({behavior:'smooth'});}
+$('change-key').onclick=()=>{ $('publishable').value=getKey(); message(''); show('setup'); };
 $('save-key').onclick=()=>{let k=$('publishable').value.trim();if(!k.startsWith('sb_publishable_')){message('Introduce una clave pública que empiece por sb_publishable_.',true);return;}localStorage.setItem(PUBLIC_KEY_STORAGE,k);location.reload();};
-$('login-form').onsubmit=async e=>{e.preventDefault();message('');const button=e.submitter;button.disabled=true;try{const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;$('password').value='';await enter(data.user);}catch(err){message('No se ha podido iniciar sesión: '+err.message,true);}finally{button.disabled=false;}};
+$('login-form').onsubmit=async e=>{e.preventDefault();message('');const button=e.submitter;button.disabled=true;try{const {data,error}=await db.auth.signInWithPassword({email:$('email').value.trim(),password:$('password').value});if(error)throw error;$('password').value='';await enter(data.user);}catch(err){message(/invalid api key|invalid.*key/i.test(err.message||'')?'La clave pública de Supabase no es válida. Pulsa Corregir conexión con Supabase, copia la Publishable key correcta y vuelve a entrar.':'No se ha podido iniciar sesión: '+err.message,true);}finally{button.disabled=false;}};
 $('logout').onclick=async()=>{await db.auth.signOut();currentUser=null;profile=null;show('signin');$('top-user').textContent='';message('Sesión cerrada.');};
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));$('reload').onclick=refresh;$('filter').oninput=renderCompanies;
 $('cancel-visit').onclick=()=>$('visit-form-panel').classList.add('hidden');
